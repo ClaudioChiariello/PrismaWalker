@@ -47,7 +47,7 @@ env = VecEnv(prisma_walker.RaisimGymEnv(home_path + "/rsc", dump(cfg['environmen
 ob_dim = env.num_obs
 act_dim = env.num_acts
 
-weight_path = "/home/claudio/raisim_ws/raisimlib/raisimGymTorch/data/prisma_walker_locomotion/25/full_25.pt"
+weight_path = "/home/claudio/raisim_ws/raisimlib/raisimGymTorch/data/prisma_walker_locomotion/init/full_252.pt"
 
 
 iteration_number = weight_path.rsplit('/', 1)[1].split('_', 1)[1].rsplit('.', 1)[0]

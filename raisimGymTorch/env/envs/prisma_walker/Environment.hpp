@@ -202,13 +202,10 @@ class ENVIRONMENT : public RaisimGymEnv {
 		previous_contact = 0;
 		prisma_walker->setState(gc_init_, gv_init_);
 		updateObservation();
-		count_ = 0;
 		NumberIteration_ = 0;
-		rew_x_ = 0;
-		rew_omega_ = 0;
-		mean_rew_omega_ = 10; //da minimizzare, altrimenti la reward lo manterra' a 0 e non si muove
-		mean_rew_x_ = 10;
-		swing_time_d = -10;
+		vel_rew_ = 0;
+		mean_vel_rew_ = 10;
+		//swing_time_d = -10; Da usare solo in caso di penalty
 		previous_contact = 1; //Parte da piede a terra e quindi va a 1
 	}
 	
@@ -218,7 +215,7 @@ class ENVIRONMENT : public RaisimGymEnv {
 		/// action scaling
 		pTarget3_ = action.cast<double>(); //dim=n_joints
 		pTarget3_ = pTarget3_.cwiseProduct(actionStd_);
-		//actionMean_ << m1_pos_(index_imitation_), m2_pos_(index_imitation_), 0.0;
+		actionMean_ << m1_pos_(index_imitation_), m2_pos_(index_imitation_), 0.0;
 		pTarget3_ += actionMean_;
 		pTarget_.tail(nJoints_) << pTarget3_;
 		current_action_ = pTarget3_;
@@ -250,19 +247,19 @@ class ENVIRONMENT : public RaisimGymEnv {
 		error_vel();
 
 		rewards_.record("torque", prisma_walker->getGeneralizedForce().squaredNorm());
-		//rewards_.record("lin_vel", lin_reward_);
-		//rewards_.record("ang_vel", ang_reward_);
-		rewards_.record("lin_vel", mean_rew_x_);
-		rewards_.record("ang_vel", mean_rew_omega_);
-		//RSINFO_IF(visualizable_, mean_rew_omega_)
-		//rewards_.record("imitation", imitation_function(gc_[7], gc_[8]));
+		rewards_.record("lin_vel", lin_reward_);
+		rewards_.record("ang_vel", ang_reward_);
+
+		//rewards_.record("lin_vel", mean_vel_rew_);
+		rewards_.record("third_joint", abs(gc_[9]));
+		rewards_.record("imitation", imitation_function(gc_[7], gc_[8]));
 		rewards_.record("angular_penalty", 0.05*(bodyAngularVel_[0] + bodyLinearVel_[1])); //+0.025*bodyLinearVel_[2]
 		rewards_.record("slipping_piede_interno", slip_term_ + ang_vel_term_contact_);
 		rewards_.record("slipping_external_feet", slipping_external_feet_function());
 		rewards_.record("clearance", clearance_foot_);
-		rewards_.record("air_foot", swing_time_d);
-		//rewards_.record("leaning", alfa_z_*alfa_z_);
-		//rewards_.record("feet_distance", (footPosition_Dx_.e().squaredNorm() - footPosition_Sx_.e().squaredNorm()));
+		//rewards_.record("air_foot", swing_time_.count()/1000);
+		if(alfa_z_ > 65)
+			rewards_.record("leaning", alfa_z_*alfa_z_);
 
 		return rewards_.sum();
 		
@@ -276,10 +273,6 @@ class ENVIRONMENT : public RaisimGymEnv {
 		return std::exp(-5* (std::pow(m1-m1_pos_(index_imitation_),2) + pow( m2- m2_pos_(index_imitation_) , 2)) );
 
 	}
-
-
-
-
  
 	float norm(Eigen::Vector3d vector){
 		float norma=0;
@@ -377,29 +370,25 @@ class ENVIRONMENT : public RaisimGymEnv {
 
 
 	void error_vel(){
-		if(cF_["lateral_feet"]==0 && cF_["center_foot"]==1){
-			count_ = 0;
+		if(cF_["center_foot"]==1){
 			double err_x = command_[0] - bodyLinearVel_[0];
 			double err_omega = command_[2] - bodyAngularVel_[2];
 			lin_reward_ =  std::exp(-5*err_x*err_x);
 			ang_reward_ =  std::exp(-15*err_omega*err_omega);
 			previous_reward_ = lin_reward_ + ang_reward_;
 		}else{		
-			count_++;
-			if(count_ == 15){
-				lin_reward_ = 0;
-				ang_reward_ = 0;
+			if(swing_time_ >= std::chrono::duration<double, std::milli>(3500) ){
+				lin_reward_ = -0.1;
+				ang_reward_ = -0.1;
 			}
 		}
 
 	}
 
 	void mean_square_error(){
-		NumberIteration_ ++;
 		double err_x = command_[0] - bodyLinearVel_[0];
 		double err_omega = command_[2] - bodyAngularVel_[2];
-		rew_x_ += (err_x*err_x);   //se la fase di swing dura poco fa poche iterazioni!!!!!!
-		rew_omega_ += (err_omega*err_omega);
+		vel_rew_ += (err_x*err_x) + (err_omega*err_omega);   //se la fase di swing dura poco fa poche iterazioni!!!!!!
 	}
 
 	void contacts(){
@@ -423,35 +412,32 @@ class ENVIRONMENT : public RaisimGymEnv {
 
 		if(cF_["center_foot"] == 1){  //NON TENERE LE COSE DENTRO IL FOR, PERCHè Altrimenti chiama le stesse funzioni piu' VOLTE!!!
 			if(previous_contact == 0 && cF_["center_foot"]==1){ //piede atterra
-				swing_time_d = swing_time_.count()/1000; //cosi' la penalty e' sempre attiva
+				swing_time_ = std::chrono::duration<double, std::milli>(0);
 			}
-			//Initialize the time
-			swing_time_ = std::chrono::duration<double, std::milli>(0);
-			mean_square_error();
+			lift_instant_ = std::chrono::steady_clock::now();
+			//mean_square_error();
+			NumberIteration_ ++;
 		}
 
 		previous_reward_ = 0;
 	
 		if(cF_["center_foot"] == 0){
+			land_instant_ = std::chrono::steady_clock::now();
+			swing_time_ += std::chrono::duration<double, std::milli>(land_instant_ - lift_instant_);
+			lift_instant_ = std::chrono::steady_clock::now();
 
-			if(previous_contact == 1 && cF_["center_foot"]==0){//prima c'era contatto e ora no
-				lift_instant_ = std::chrono::steady_clock::now();
+			/*if(previous_contact == 1 && cF_["center_foot"]==0){// Inizia a sollevare-> Robot Fermo
+				bool start = true;
 				
-				mean_rew_x_ = rew_x_ / NumberIteration_; //Riempe previous vel con l'errore medio
-				mean_rew_omega_ = rew_omega_ / NumberIteration_;
-				//RSINFO_IF(visualizable_, rew_x_)
-
-				NumberIteration_ = 0;
-				rew_x_ = 0;
-				rew_omega_ = 0;
-			}
-			land_instant_ = std::chrono::steady_clock::now(); //non puo' andare prima di swing_time_ altrimenti somma i ms in maniera iterativa
+				/*mean_vel_rew_ = rew_x_ / NumberIteration_; //Riempe previous vel con l'errore medio
+				NumberIteration_ = 1;
+				vel_rew_ = 0;
+			}		*/
 		}
 
-		swing_time_ += std::chrono::duration<double, std::milli>(land_instant_ - lift_instant_);
 		previous_contact = cF_["center_foot"];		
 
-		//RSINFO_IF(visualizable_, "swing time: "<< cF_["center_foot"])
+		//RSINFO_IF(visualizable_, "swing time: "<< swing_time_.count())
 		//RSINFO_IF(visualizable_, "error vel: "<< mean_rew_x_)
 
 		slippage();
@@ -593,7 +579,7 @@ class ENVIRONMENT : public RaisimGymEnv {
 			begin_[0] =  std::chrono::steady_clock::now();
 		}
 	
-		
+		//RSINFO_IF(visualizable_, elapsed_time_[0].count())
 		if(elapsed_time_[1] >= std::chrono::duration<double, std::milli>(7500) 
 			|| elapsed_time_[0] >= std::chrono::duration<double, std::milli>(7500)
 			|| elapsed_time_[2] >= std::chrono::duration<double, std::milli>(3000)){ //3 secondi
@@ -603,6 +589,7 @@ class ENVIRONMENT : public RaisimGymEnv {
 			RSINFO_IF(visualizable_, "locked")
 			return true;
 		}
+		
 	
 		terminalReward = 0.f;
 		return false;
@@ -690,7 +677,7 @@ class ENVIRONMENT : public RaisimGymEnv {
 
   std::chrono::duration<double, std::milli> elapsed_time_[3]; 
   std::chrono::duration<double, std::milli> swing_time_; 
-  std::chrono::steady_clock::time_point begin_[3];
+  std::chrono::steady_clock::time_point begin_[3], lift_instant_, land_instant_;
   std::map<std::string,int> cF_ = {
     {"center_foot", 0},
     {"lateral_feet", 0},
@@ -702,10 +689,10 @@ class ENVIRONMENT : public RaisimGymEnv {
   int num_episode_ = 0;
   double ang_vel_term_contact_ = 0;
   double previous_reward_, lin_reward_, ang_reward_ = 0;
-  std::chrono::steady_clock::time_point lift_instant_, land_instant_;
+ 
   int previous_contact;
   int count_ = 0;
-  double rew_x_, rew_omega_, mean_rew_omega_, mean_rew_x_, swing_time_d;
+  double vel_rew_, mean_vel_rew_, swing_time_d;
   int NumberIteration_;
 };
 thread_local std::mt19937 raisim::ENVIRONMENT::gen_;
