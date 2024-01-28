@@ -4,9 +4,9 @@ record_video: yes
 environment:
   render: True
 # just testing commenting
-  num_envs: 100
-  eval_every_n: 50
-  num_threads: 14
+  num_envs: 1
+  eval_every_n: 150
+  num_threads: 30
   simulation_dt: 0.001
   control_dt: 0.01
   max_time: 6
@@ -18,26 +18,18 @@ environment:
       coeff: -0.00005
     lin_vel:
       coeff: 0.05
-    ang_vel:
-      coeff: 0.045
     imitation:
-      coeff: -0.5
+      coeff: 1
     slipping_piede_interno:
       coeff: -0.6
     slipping_external_feet:
       coeff: -0.6
-    clearance:
-      coeff: 0.045
     angular_penalty:
-      coeff: -1.2
-    leaning:
-      coeff: -0.000008
+      coeff: -0.5
     air_foot:
       coeff: -0.005 ##Initialized at -10 in the reset of Environment.hpp
-    third_joint:
-      coeff: -0.6
     Joint_velocity: 
-      coeff: -0.0005
+      coeff: 0
 architecture:
   policy_net: [256, 128]
   value_net: [256, 128]

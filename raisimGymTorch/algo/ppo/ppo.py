@@ -109,7 +109,11 @@ class PPO:
         mean_value_loss = 0
         mean_surrogate_loss = 0
         running_loss = 0.0
+        
         for epoch in range(self.num_learning_epochs):
+            
+            loss_values_ephoches = 0.0
+
             for actor_obs_batch, critic_obs_batch, actions_batch, old_sigma_batch, old_mu_batch, current_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch \
                     in self.batch_sampler(self.num_mini_batches):
 
@@ -166,7 +170,7 @@ class PPO:
                     mean_value_loss += value_loss.item()
                     mean_surrogate_loss += surrogate_loss.item()
 
-        loss_values_ephoches = running_loss / self.num_mini_batches #Loss for epoches, computed as the mean of the loss per miniBatch
+            loss_values_ephoches += running_loss / self.num_mini_batches #Loss for epoches, computed as the mean of the loss per miniBatch
         self.loss_dict[update] = loss_values_ephoches / self.num_learning_epochs #Loss for episodes
 
         if log_this_iteration:

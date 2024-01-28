@@ -22,9 +22,8 @@ def print_loss(x, y ):
     plt.title('Loss function varying lambda')
     plt.xlabel('Episode')
     plt.ylabel('Loss value')
-
+    plt.ylim(2, 50) 
     plt.legend()
-    plt.grid()
     
 
 
@@ -47,5 +46,6 @@ if __name__ == "__main__":
             x_axis = list(x_axis)
 
             print_loss(x_axis, "lambda = " + str(i) )
-    
+
+    plt.grid()
     plt.show()
